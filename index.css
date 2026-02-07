@@ -1,0 +1,181 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Rebutly.AI Design System - Chess.com inspired dark theme with purple/cyan accents */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+@layer base {
+  :root {
+    /* Dark theme inspired by Chess.com */
+    --background: 220 20% 10%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 18% 14%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 18% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Primary - Purple from logo */
+    --primary: 265 70% 55%;
+    --primary-foreground: 210 40% 98%;
+
+    /* Secondary - Deep blue from logo text */
+    --secondary: 220 80% 45%;
+    --secondary-foreground: 210 40% 98%;
+
+    /* Accent - Cyan/Teal from arrow */
+    --accent: 175 80% 50%;
+    --accent-foreground: 220 20% 10%;
+
+    --muted: 220 15% 20%;
+    --muted-foreground: 215 20% 65%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 15% 22%;
+    --input: 220 15% 18%;
+    --ring: 265 70% 55%;
+
+    --radius: 0.75rem;
+
+    /* Custom tokens for Rebutly */
+    --gradient-primary: linear-gradient(135deg, hsl(265, 70%, 55%) 0%, hsl(220, 80%, 45%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(175, 80%, 50%) 0%, hsl(200, 80%, 55%) 100%);
+    --gradient-hero: linear-gradient(180deg, hsl(220, 20%, 8%) 0%, hsl(220, 20%, 12%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(220, 18%, 16%) 0%, hsl(220, 18%, 12%) 100%);
+    
+    --shadow-glow-primary: 0 0 40px hsl(265 70% 55% / 0.3);
+    --shadow-glow-accent: 0 0 30px hsl(175 80% 50% / 0.3);
+    --shadow-card: 0 4px 20px hsl(220 20% 5% / 0.4);
+
+    /* Sidebar - Chess.com inspired */
+    --sidebar-background: 220 18% 12%;
+    --sidebar-foreground: 210 40% 90%;
+    --sidebar-primary: 265 70% 55%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 220 15% 18%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 220 15% 20%;
+    --sidebar-ring: 265 70% 55%;
+
+    /* Success/Warning for gamification */
+    --success: 142 70% 45%;
+    --success-foreground: 210 40% 98%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 220 20% 10%;
+  }
+
+  .dark {
+    /* Already dark by default */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+    background: linear-gradient(180deg, hsl(220, 20%, 8%) 0%, hsl(220, 20%, 12%) 100%);
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-md border border-border/50 rounded-xl;
+    box-shadow: var(--shadow-card);
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(265, 70%, 60%) 0%, hsl(175, 80%, 50%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .action-card {
+    @apply relative overflow-hidden rounded-xl p-4 cursor-pointer transition-all duration-300;
+    @apply bg-gradient-to-br from-card to-muted/50 border border-border/50;
+    @apply hover:scale-[1.02] hover:shadow-lg;
+  }
+
+  .action-card::before {
+    content: '';
+    @apply absolute inset-0 opacity-0 transition-opacity duration-300;
+    background: linear-gradient(135deg, hsl(265 70% 55% / 0.1) 0%, hsl(175 80% 50% / 0.1) 100%);
+  }
+
+  .action-card:hover::before {
+    @apply opacity-100;
+  }
+
+  .stat-badge {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold;
+    @apply bg-muted/50 border border-border/50;
+  }
+
+  .glow-primary {
+    box-shadow: var(--shadow-glow-primary);
+  }
+
+  .glow-accent {
+    box-shadow: var(--shadow-glow-accent);
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200;
+    @apply text-muted-foreground hover:text-foreground hover:bg-sidebar-accent;
+  }
+
+  .nav-item.active {
+    @apply text-primary bg-sidebar-accent;
+  }
+
+  .pulse-dot {
+    @apply w-2 h-2 rounded-full bg-success animate-pulse;
+  }
+}
+
+@layer utilities {
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+
+  @keyframes glow {
+    from { box-shadow: 0 0 20px hsl(265 70% 55% / 0.3); }
+    to { box-shadow: 0 0 40px hsl(265 70% 55% / 0.5); }
+  }
+
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.5s ease-out forwards;
+  }
+}
