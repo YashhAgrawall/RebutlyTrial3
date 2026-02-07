@@ -1,0 +1,19 @@
+project_id = "wmsjckuevjdfjeeaghke"
+
+[functions.debate-ai]
+verify_jwt = false
+
+[functions.debate-timer]
+verify_jwt = false
+
+[functions.elevenlabs-scribe-token]
+verify_jwt = false
+
+[functions.elevenlabs-tts]
+verify_jwt = false
+
+[functions.matchmaking-worker]
+verify_jwt = false
+
+[functions.update-elo]
+verify_jwt = false
