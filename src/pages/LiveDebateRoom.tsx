@@ -30,9 +30,9 @@ import { supabase } from '@/integrations/supabase/browserClient';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import logo from '@/assets/rebutly-logo.png';
-import { DebateNotes, type Note } from '@/components/demo/DebateNotes';
-import { TransitionCountdown, type TransitionMode } from '@/components/demo/TransitionCountdown';
-import { PrepTimer } from '@/components/demo/PrepTimer';
+import { DebateNotes, type Note } from '@/components/DebateNotes';
+import { TransitionCountdown, type TransitionMode } from '@/components/TransitionCountdown';
+import { PrepTimer } from '@/components/PrepTimer';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 
 // ============================================================================

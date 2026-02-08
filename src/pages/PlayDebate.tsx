@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Bot,
@@ -30,16 +30,14 @@ import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useAISpeech } from '@/hooks/useAISpeech';
 import { useAuth } from '@/hooks/useAuth';
 import logo from '@/assets/rebutly-logo.png';
-import { DebateSetup, type DebateFormat, type TransitionMode, type AIVoiceGender, DEBATE_FORMATS } from '@/components/demo/DebateSetup';
-import { DebateNotes, type Note } from '@/components/demo/DebateNotes';
-import { TransitionCountdown } from '@/components/demo/TransitionCountdown';
-import { PrepTimer } from '@/components/demo/PrepTimer';
+import { DebateSetup, type DebateFormat, type TransitionMode, type AIVoiceGender, DEBATE_FORMATS } from '@/components/DebateSetup';
+import { DebateNotes, type Note } from '@/components/DebateNotes';
+import { TransitionCountdown } from '@/components/TransitionCountdown';
+import { PrepTimer } from '@/components/PrepTimer';
 
 // Debate phases - order follows standard debate logic
 // Proposition ALWAYS speaks first, regardless of whether user or AI
-type DemoPhase = 
-  | 'intro' 
-  | 'topic' 
+type DebatePhase = 
   | 'setup' 
   | 'prep' 
   | 'prop_constructive'  // Proposition constructive (could be user OR AI)
@@ -49,7 +47,7 @@ type DemoPhase =
   | 'prop_closing'       // Proposition closing
   | 'opp_closing'        // Opposition closing
   | 'transition'
-  | 'debate_complete'    // NEW: Debate finished, waiting for user to request judgement
+  | 'debate_complete'    // Debate finished, waiting for user to request judgement
   | 'analyzing' 
   | 'feedback' 
   | 'results';
@@ -59,7 +57,7 @@ interface Message {
   sender: 'user' | 'ai' | 'system';
   text: string;
   timestamp: Date;
-  isProgressive?: boolean; // For AI messages being spoken
+  isProgressive?: boolean;
 }
 
 interface FeedbackCategory {
@@ -85,28 +83,16 @@ interface DebateFeedback {
   researchSuggestions: string[];
 }
 
-const DEMO_TOPICS = [
-  "This House believes that social media does more harm than good",
-  "This House would ban the use of facial recognition technology by governments",
-  "This House believes that space exploration is a waste of resources",
-  "This House would implement a universal basic income",
-  "This House believes artificial intelligence poses an existential threat to humanity",
-  "This House would abolish standardized testing in schools",
-];
+interface PlayDebateProps {
+  topic: string;
+  format: DebateFormat;
+  onExit: () => void;
+}
 
-const Demo = () => {
+const PlayDebate = ({ topic, format: initialFormat, onExit }: PlayDebateProps) => {
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
-  
-  // Redirect authenticated users to /play
-  useEffect(() => {
-    if (!authLoading && user) {
-      navigate('/play', { replace: true });
-    }
-  }, [user, authLoading, navigate]);
-
-  const [phase, setPhase] = useState<DemoPhase>('intro');
-  const [topic, setTopic] = useState('');
+  const { user, profile } = useAuth();
+  const [phase, setPhase] = useState<DebatePhase>('setup');
   const [timeLeft, setTimeLeft] = useState(60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -121,14 +107,14 @@ const Demo = () => {
 
   // Enhanced state for debate flow
   const [userSide, setUserSide] = useState<'proposition' | 'opposition'>('proposition');
-  const [debateFormat, setDebateFormat] = useState<DebateFormat>('standard');
+  const [debateFormat, setDebateFormat] = useState<DebateFormat>(initialFormat);
   const [transitionMode, setTransitionMode] = useState<TransitionMode>('both');
   const [aiVoiceGender, setAiVoiceGender] = useState<AIVoiceGender>('male');
   const [showTransition, setShowTransition] = useState(false);
-  const [nextPhaseAfterTransition, setNextPhaseAfterTransition] = useState<DemoPhase | null>(null);
+  const [nextPhaseAfterTransition, setNextPhaseAfterTransition] = useState<DebatePhase | null>(null);
   const [showNotesPanel, setShowNotesPanel] = useState(true);
 
-  // Notes state - LIFTED to Demo component for persistence across phases
+  // Notes state
   const [notes, setNotes] = useState<Note[]>([]);
   const [notesActiveTab, setNotesActiveTab] = useState<'arguments' | 'rebuttals' | 'examples'>('arguments');
   const [notesCurrentNote, setNotesCurrentNote] = useState('');
@@ -138,10 +124,10 @@ const Demo = () => {
   // AI Speech hook for TTS and progressive text
   const aiSpeech = useAISpeech({
     onComplete: () => {
-      console.log('[Demo] AI speech complete');
+      console.log('[PlayDebate] AI speech complete');
     },
     onError: (error) => {
-      console.error('[Demo] AI speech error:', error);
+      console.error('[PlayDebate] AI speech error:', error);
     },
   });
 
@@ -160,7 +146,7 @@ const Demo = () => {
       }
     },
     onError: (err) => {
-      console.error('[Demo] Voice error:', err);
+      console.error('[PlayDebate] Voice error:', err);
     }
   });
 
@@ -170,8 +156,7 @@ const Demo = () => {
   }, [messages, aiSpeech.displayedText]);
 
   // Determine if current phase is for user or AI based on side
-  const isUserPhase = useCallback((currentPhase: DemoPhase): boolean => {
-    // User speaks in phases matching their side
+  const isUserPhase = useCallback((currentPhase: DebatePhase): boolean => {
     if (userSide === 'proposition') {
       return currentPhase.startsWith('prop_');
     } else {
@@ -179,8 +164,7 @@ const Demo = () => {
     }
   }, [userSide]);
 
-  const isAIPhase = useCallback((currentPhase: DemoPhase): boolean => {
-    // AI speaks in phases NOT matching user's side
+  const isAIPhase = useCallback((currentPhase: DebatePhase): boolean => {
     if (userSide === 'proposition') {
       return currentPhase.startsWith('opp_');
     } else {
@@ -189,8 +173,8 @@ const Demo = () => {
   }, [userSide]);
 
   // Get the next phase in debate order
-  const getNextPhase = useCallback((currentPhase: DemoPhase): DemoPhase | null => {
-    const phaseOrder: DemoPhase[] = [
+  const getNextPhase = useCallback((currentPhase: DebatePhase): DebatePhase | null => {
+    const phaseOrder: DebatePhase[] = [
       'prop_constructive',
       'opp_constructive', 
       'prop_rebuttal',
@@ -202,18 +186,18 @@ const Demo = () => {
     if (currentIndex >= 0 && currentIndex < phaseOrder.length - 1) {
       return phaseOrder[currentIndex + 1];
     }
-    return null; // End of debate
+    return null;
   }, []);
 
   // Get speech type from phase
-  const getSpeechType = useCallback((currentPhase: DemoPhase): 'opening' | 'rebuttal' | 'closing' => {
+  const getSpeechType = useCallback((currentPhase: DebatePhase): 'opening' | 'rebuttal' | 'closing' => {
     if (currentPhase.includes('constructive')) return 'opening';
     if (currentPhase.includes('rebuttal')) return 'rebuttal';
     return 'closing';
   }, []);
 
   // Get current speech time based on format and phase
-  const getCurrentSpeechTime = useCallback((currentPhase?: DemoPhase) => {
+  const getCurrentSpeechTime = useCallback((currentPhase?: DebatePhase) => {
     const checkPhase = currentPhase || phase;
     const config = DEBATE_FORMATS[debateFormat];
     if (checkPhase.includes('constructive')) {
@@ -257,7 +241,7 @@ const Demo = () => {
     phaseType: 'opening' | 'rebuttal' | 'closing',
     speechDurationSeconds?: number
   ) => {
-    console.log('[Demo] Calling debate AI:', type, phaseType);
+    console.log('[PlayDebate] Calling debate AI:', type, phaseType);
     
     try {
       const { data, error } = await supabase.functions.invoke('debate-ai', {
@@ -279,13 +263,13 @@ const Demo = () => {
       });
 
       if (error) {
-        console.error('[Demo] Edge function error:', error);
+        console.error('[PlayDebate] Edge function error:', error);
         throw error;
       }
 
       return data;
     } catch (err) {
-      console.error('[Demo] AI call failed:', err);
+      console.error('[PlayDebate] AI call failed:', err);
       throw err;
     }
   }, [topic, userSide, userArguments, aiArguments, messages]);
@@ -293,8 +277,6 @@ const Demo = () => {
   // Get AI response and deliver with TTS
   const getAIResponseWithSpeech = useCallback(async (phaseType: 'opening' | 'rebuttal' | 'closing') => {
     setAiTyping(true);
-    
-    // Get speech duration based on format for word limiting
     const speechDuration = getCurrentSpeechTime();
     
     try {
@@ -304,27 +286,22 @@ const Demo = () => {
         const aiResponse = data.response;
         setAiArguments(prev => [...prev, aiResponse]);
         
-        // Add message as progressive (will update as speech progresses)
         const messageId = Date.now().toString();
         setMessages(prev => [...prev, {
           id: messageId,
           sender: 'ai',
-          text: '', // Start empty, will fill progressively
+          text: '',
           timestamp: new Date(),
           isProgressive: true,
         }]);
 
         setAiTyping(false);
-        
-        // Start TTS with progressive text display
         await aiSpeech.startSpeech(aiResponse, speechDuration, aiVoiceGender);
         
-        // Wait for speech to complete before returning
         await new Promise<void>((resolve) => {
           const checkComplete = setInterval(() => {
             if (!aiSpeech.isSpeaking) {
               clearInterval(checkComplete);
-              // Ensure full text is shown
               setMessages(prev => prev.map(m => 
                 m.id === messageId 
                   ? { ...m, text: aiResponse, isProgressive: false }
@@ -332,7 +309,6 @@ const Demo = () => {
               ));
               resolve();
             } else {
-              // Update message as speech progresses
               setMessages(prev => prev.map(m => 
                 m.id === messageId && m.isProgressive
                   ? { ...m, text: aiSpeech.displayedText }
@@ -346,14 +322,13 @@ const Demo = () => {
         throw new Error('No response from AI');
       }
     } catch (err) {
-      console.error('[Demo] Failed to get AI response:', err);
+      console.error('[PlayDebate] Failed to get AI response:', err);
       setAiTyping(false);
-      // Fallback response
       const aiSide = userSide === 'proposition' ? 'opposition' : 'proposition';
       const fallbackResponses = {
-        opening: `As the ${aiSide}, I firmly oppose this motion. The evidence suggests that the costs of this proposal far outweigh any potential benefits. Let me explain why this matters for real people.`,
-        rebuttal: "My opponent's argument relies on idealistic assumptions that don't hold up in practice. The studies they might cite often ignore critical confounding factors. When we look at real-world implementations, we see a different picture entirely.",
-        closing: "In weighing this debate, consider that my side has provided concrete evidence while the opposition relied on theoretical benefits. The risks are too great, and the proposed solutions are unproven."
+        opening: `As the ${aiSide}, I firmly oppose this motion. The evidence suggests that the costs of this proposal far outweigh any potential benefits.`,
+        rebuttal: "My opponent's argument relies on idealistic assumptions that don't hold up in practice.",
+        closing: "In weighing this debate, consider that my side has provided concrete evidence while the opposition relied on theoretical benefits."
       };
       addMessage('ai', fallbackResponses[phaseType]);
       setAiArguments(prev => [...prev, fallbackResponses[phaseType]]);
@@ -374,66 +349,20 @@ const Demo = () => {
         throw new Error('Invalid feedback response');
       }
     } catch (err) {
-      console.error('[Demo] Failed to generate feedback:', err);
-      // Fallback feedback
+      console.error('[PlayDebate] Failed to generate feedback:', err);
       setFeedback({
         overallScore: 72,
         verdict: 'close',
-        summary: "You presented solid arguments but could strengthen your evidence base. Focus on preemptively addressing counterarguments and citing specific sources.",
+        summary: "You presented solid arguments but could strengthen your evidence base.",
         categories: [
-          {
-            name: 'Argumentation',
-            score: 75,
-            feedback: "Your logical structure was clear, but some claims needed stronger warrants.",
-            strengths: ["Clear thesis statement", "Good use of examples"],
-            improvements: ["Add more warrants to support claims", "Strengthen logical connections"]
-          },
-          {
-            name: 'Evidence',
-            score: 68,
-            feedback: "Arguments would benefit from specific citations.",
-            strengths: ["Attempted to use examples"],
-            improvements: ["Cite specific studies or statistics", "Reference expert sources"]
-          },
-          {
-            name: 'Rebuttal',
-            score: 70,
-            feedback: "You engaged with opponent arguments but could be more direct.",
-            strengths: ["Acknowledged opponent points"],
-            improvements: ["Be more direct in refutations", "Preempt obvious counterarguments"]
-          },
-          {
-            name: 'Delivery',
-            score: 78,
-            feedback: "Your communication was clear. Work on varying emphasis.",
-            strengths: ["Clear expression", "Good pacing"],
-            improvements: ["Use signposting", "Emphasize key impact statements"]
-          },
-          {
-            name: 'Strategy',
-            score: 72,
-            feedback: "Good time management overall.",
-            strengths: ["Covered main points within time"],
-            improvements: ["Prioritize strongest arguments", "Build to a powerful closing"]
-          }
+          { name: 'Argumentation', score: 75, feedback: "Your logical structure was clear.", strengths: ["Clear thesis"], improvements: ["Add more warrants"] },
+          { name: 'Evidence', score: 68, feedback: "Arguments would benefit from citations.", strengths: ["Good examples"], improvements: ["Cite sources"] },
+          { name: 'Rebuttal', score: 70, feedback: "You engaged with opponent arguments.", strengths: ["Acknowledged points"], improvements: ["Be more direct"] },
+          { name: 'Delivery', score: 78, feedback: "Your communication was clear.", strengths: ["Good pacing"], improvements: ["Vary emphasis"] },
+          { name: 'Strategy', score: 72, feedback: "Good time management.", strengths: ["Covered main points"], improvements: ["Prioritize strongest arguments"] }
         ],
-        keyMoments: [
-          {
-            type: 'strength',
-            description: "Your opening clearly established your position.",
-            suggestion: "Continue creating strong frameworks."
-          },
-          {
-            type: 'missed_opportunity',
-            description: "When the opponent raised concerns, a counter-example would have helped.",
-            suggestion: "Keep 2-3 strong examples ready for common objections."
-          }
-        ],
-        researchSuggestions: [
-          "Look up recent meta-analyses on this topic",
-          "Study how this issue has played out in different countries",
-          "Research common debate frameworks"
-        ]
+        keyMoments: [],
+        researchSuggestions: ["Research debate frameworks", "Study similar motions"]
       });
       setPhase('feedback');
     } finally {
@@ -441,7 +370,7 @@ const Demo = () => {
     }
   }, [callDebateAI]);
 
-  const showTransitionScreen = useCallback((nextPhase: DemoPhase) => {
+  const showTransitionScreen = useCallback((nextPhase: DebatePhase) => {
     setNextPhaseAfterTransition(nextPhase);
     setShowTransition(true);
   }, []);
@@ -456,32 +385,26 @@ const Demo = () => {
     const speechType = getSpeechType(nextPhase);
     const speechTime = getCurrentSpeechTime(nextPhase);
     
-    // Check if next phase is for AI or User
     if (isAIPhase(nextPhase)) {
-      // AI's turn to speak
       setPhase(nextPhase);
       const aiSideLabel = userSide === 'proposition' ? 'Opposition' : 'Proposition';
       addSystemMessage(`${aiSideLabel} (AI) is presenting their ${speechType}...`);
       
       await getAIResponseWithSpeech(speechType);
 
-      // After AI finishes speaking, check what's next
       const followingPhase = getNextPhase(nextPhase);
       
       if (followingPhase) {
-        // Pause before transitioning to next phase
         setTimeout(() => {
           showTransitionScreen(followingPhase);
         }, 1500);
       } else {
-        // End of debate - enter "Debate Complete" state, do NOT auto-start judgement
         addSystemMessage("The debate has concluded. Take your time to review the arguments.");
         setTimeout(() => {
           setPhase('debate_complete');
         }, 2000);
       }
     } else {
-      // User's turn to speak
       setPhase(nextPhase);
       setTimeLeft(speechTime);
       setIsTimerRunning(true);
@@ -501,8 +424,7 @@ const Demo = () => {
     userSide, 
     getAIResponseWithSpeech, 
     getNextPhase, 
-    showTransitionScreen, 
-    generateFeedback
+    showTransitionScreen
   ]);
 
   const handlePhaseEnd = useCallback(async () => {
@@ -513,7 +435,6 @@ const Demo = () => {
       addSystemMessage(`${currentSpeaker} time is up! Preparing for the next speech...`);
       showTransitionScreen(nextPhase);
     } else {
-      // End of debate - enter "Debate Complete" state, do NOT auto-start judgement
       addSystemMessage("Debate complete! Review your arguments, then click 'Hear Judgement' when ready.");
       setPhase('debate_complete');
     }
@@ -530,12 +451,6 @@ const Demo = () => {
     addMessage('system', text);
   };
 
-  const startDemo = () => {
-    const randomTopic = DEMO_TOPICS[Math.floor(Math.random() * DEMO_TOPICS.length)];
-    setTopic(randomTopic);
-    setPhase('topic');
-  };
-
   const handleSetupComplete = (config: {
     side: 'proposition' | 'opposition';
     format: DebateFormat;
@@ -549,7 +464,6 @@ const Demo = () => {
     setTransitionMode(config.transitionMode);
     setAiVoiceGender(config.aiVoiceGender);
     
-    // Apply audio settings from configuration
     if (config.audioEnabled) {
       aiSpeech.enableAudio();
       aiSpeech.setVolume(config.audioVolume);
@@ -561,7 +475,7 @@ const Demo = () => {
     setPhase('prep');
   };
 
-  // Start debate after prep - Proposition ALWAYS speaks first
+  // Start debate after prep
   const startDebate = useCallback(() => {
     const config = DEBATE_FORMATS[debateFormat];
     setUserArguments([]);
@@ -569,26 +483,20 @@ const Demo = () => {
     
     addSystemMessage(`The motion is: "${topic}"`);
     
-    // Proposition always speaks first - this is the critical logic
     if (userSide === 'proposition') {
-      // User is Proposition, user speaks first
       setPhase('prop_constructive');
       setTimeLeft(config.constructiveTime);
       setIsTimerRunning(true);
       addSystemMessage(`You are PROPOSITION (arguing FOR). You speak first. You have ${formatTime(config.constructiveTime)} for your opening statement.`);
       setTimeout(() => inputRef.current?.focus(), 100);
     } else {
-      // User is Opposition, AI (as Proposition) speaks first
       setPhase('prop_constructive');
       addSystemMessage(`You are OPPOSITION (arguing AGAINST). The AI speaks first as Proposition.`);
-      // Start AI speech - ensure it completes before showing transition
       setTimeout(async () => {
         await getAIResponseWithSpeech('opening');
-        // After AI finishes speaking, wait a moment then show transition
-        // The await above ensures AI speech completes
         setTimeout(() => {
           showTransitionScreen('opp_constructive');
-        }, 2000); // Give 2 seconds to process before transition
+        }, 2000);
       }, 500);
     }
   }, [debateFormat, topic, userSide, getAIResponseWithSpeech, showTransitionScreen]);
@@ -615,28 +523,6 @@ const Demo = () => {
         toast.error(voiceError);
       }
     }
-  };
-
-  const restartDemo = () => {
-    setPhase('intro');
-    setTopic('');
-    setTimeLeft(60);
-    setIsTimerRunning(false);
-    setMessages([]);
-    setUserInput('');
-    setAiTyping(false);
-    setFeedback(null);
-    setUserArguments([]);
-    setAiArguments([]);
-    setShowTransition(false);
-    setNextPhaseAfterTransition(null);
-    aiSpeech.stopSpeech();
-    // Reset notes
-    setNotes([]);
-    setNotesActiveTab('arguments');
-    setNotesCurrentNote('');
-    setNotesCurrentColor('default');
-    setNotesCurrentTags([]);
   };
 
   const formatTime = (seconds: number) => {
@@ -671,12 +557,10 @@ const Demo = () => {
     }
   };
 
-  // Check if we're in a debate phase
   const isDebatePhase = phase.includes('constructive') || phase.includes('rebuttal') || phase.includes('closing');
   const isCurrentlyUserSpeaking = isDebatePhase && isUserPhase(phase) && isTimerRunning;
   const isCurrentlyAISpeaking = isDebatePhase && isAIPhase(phase) && aiSpeech.isSpeaking;
 
-  // Get phase label for display
   const getPhaseLabel = () => {
     const speechType = getSpeechType(phase);
     const side = phase.startsWith('prop_') ? 'Proposition' : 'Opposition';
@@ -684,13 +568,11 @@ const Demo = () => {
     return `${side} (${speaker}) - ${speechType.charAt(0).toUpperCase() + speechType.slice(1)}`;
   };
 
-  // Transition next speaker label
   const getTransitionNextSpeaker = (): 'user' | 'ai' => {
     if (!nextPhaseAfterTransition) return 'user';
     return isUserPhase(nextPhaseAfterTransition) ? 'user' : 'ai';
   };
 
-  // Common props for DebateNotes
   const notesProps = {
     notes,
     onNotesChange: setNotes,
@@ -706,7 +588,7 @@ const Demo = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Transition Countdown Overlay - ONLY show when not AI speaking */}
+      {/* Transition Countdown Overlay */}
       <TransitionCountdown
         isVisible={showTransition && !aiSpeech.isSpeaking}
         mode={transitionMode}
@@ -725,8 +607,8 @@ const Demo = () => {
                 Rebutly<span className="text-primary">.AI</span>
               </span>
             </Link>
-            <span className="px-2 py-1 rounded bg-warning/20 text-warning text-xs font-medium">
-              DEMO MODE
+            <span className="px-2 py-1 rounded bg-primary/20 text-primary text-xs font-medium">
+              AI DEBATE
             </span>
             {(phase === 'setup' || phase === 'prep' || isDebatePhase) && (
               <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -740,8 +622,6 @@ const Demo = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            
-            {/* User speaking timer */}
             {isCurrentlyUserSpeaking && (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
                 <Clock className={`w-4 h-4 ${timeLeft <= 10 ? 'text-destructive' : 'text-muted-foreground'}`} />
@@ -751,21 +631,16 @@ const Demo = () => {
               </div>
             )}
             
-            {/* AI speaking timer + controls */}
             {isCurrentlyAISpeaking && (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent/20">
                 <Volume2 className="w-4 h-4 text-accent animate-pulse" />
                 <span className="text-sm font-medium text-accent">AI Speaking</span>
-                
-                {/* Timer countdown - same style as user timer */}
                 <div className="flex items-center gap-2 px-2 py-0.5 rounded bg-background/50">
                   <Clock className={`w-4 h-4 ${aiSpeech.speechTimeRemaining <= 10 ? 'text-destructive' : 'text-accent'}`} />
                   <span className={`font-mono font-bold ${aiSpeech.speechTimeRemaining <= 10 ? 'text-destructive' : 'text-accent'}`}>
                     {formatTime(aiSpeech.speechTimeRemaining)}
                   </span>
                 </div>
-                
-                {/* Progress bar */}
                 <div className="w-16 h-1 bg-muted rounded-full overflow-hidden">
                   <motion.div 
                     className="h-full bg-accent"
@@ -774,9 +649,9 @@ const Demo = () => {
                 </div>
               </div>
             )}
-            <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+            <Button variant="ghost" size="sm" onClick={onExit}>
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Exit Demo
+              Exit
             </Button>
           </div>
         </div>
@@ -785,82 +660,16 @@ const Demo = () => {
       {/* Main Content */}
       <main className="flex-1 flex items-center justify-center p-4">
         <AnimatePresence mode="wait">
-          {/* Intro Phase */}
-          {phase === 'intro' && (
-            <motion.div
-              key="intro"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="glass-card p-8 max-w-lg text-center"
-            >
-              <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center mb-6">
-                <Bot className="w-10 h-10 text-primary" />
-              </div>
-              <h1 className="font-display text-2xl font-bold mb-2">AI Debate Arena</h1>
-              <p className="text-muted-foreground mb-6">
-                Debate against an AI opponent with realistic speech delivery, 
-                proper debate order, and structured feedback.
-              </p>
-              <div className="bg-muted/50 rounded-lg p-4 mb-6 text-left text-sm">
-                <p className="font-medium mb-2">What's included:</p>
-                <ul className="text-muted-foreground space-y-1">
-                  <li>• <strong>Realistic order:</strong> Proposition always speaks first</li>
-                  <li>• <strong>AI voice:</strong> Choose male or female voice</li>
-                  <li>• <strong>Paced transitions:</strong> Countdown between speeches</li>
-                  <li>• <strong>Persistent notes:</strong> Available throughout the debate</li>
-                  <li>• <strong>Audio controls:</strong> Mute/volume for AI speech</li>
-                </ul>
-              </div>
-              <div className="space-y-3">
-                <Button onClick={startDemo} className="w-full bg-gradient-to-r from-primary to-secondary">
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  Start AI Debate
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  No sign-up required. Full experience available after registration.
-                </p>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Topic Reveal Phase */}
-          {phase === 'topic' && (
-            <motion.div
-              key="topic"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="glass-card p-8 max-w-lg text-center"
-            >
-              <div className="mb-6">
-                <span className="text-sm text-muted-foreground uppercase tracking-wider">Today's Motion</span>
-              </div>
-              <motion.h2
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
-                className="font-display text-xl md:text-2xl font-bold mb-6 text-primary"
-              >
-                "{topic}"
-              </motion.h2>
-              <Button onClick={() => setPhase('setup')} className="w-full">
-                Configure Debate
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </motion.div>
-          )}
-
           {/* Setup Phase */}
           {phase === 'setup' && (
             <DebateSetup
               topic={topic}
               onStart={handleSetupComplete}
-              onBack={() => setPhase('topic')}
+              onBack={onExit}
             />
           )}
 
-          {/* Prep Phase - Notes panel visible */}
+          {/* Prep Phase */}
           {phase === 'prep' && (
             <div className="flex gap-4 w-full max-w-5xl">
               <div className="flex-1">
@@ -887,7 +696,7 @@ const Demo = () => {
             </div>
           )}
 
-          {/* Debate Phase - Notes panel ALWAYS visible */}
+          {/* Debate Phase */}
           {isDebatePhase && (
             <motion.div
               key="debate"
@@ -896,9 +705,7 @@ const Demo = () => {
               exit={{ opacity: 0 }}
               className="w-full max-w-5xl flex gap-4"
             >
-              {/* Main debate area */}
               <div className="flex-1">
-                {/* Phase indicator */}
                 <div className="text-center mb-4 flex items-center justify-center gap-2">
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                     isUserPhase(phase) 
@@ -914,7 +721,6 @@ const Demo = () => {
                   )}
                 </div>
 
-                {/* Messages area */}
                 <div className="glass-card p-4 h-[50vh] overflow-y-auto mb-4">
                   <div className="space-y-4">
                     {messages.map((msg) => (
@@ -926,9 +732,7 @@ const Demo = () => {
                       >
                         {msg.sender !== 'system' && (
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            msg.sender === 'user' 
-                              ? 'bg-primary/20' 
-                              : 'bg-accent/20'
+                            msg.sender === 'user' ? 'bg-primary/20' : 'bg-accent/20'
                           }`}>
                             {msg.sender === 'user' ? (
                               <User className="w-4 h-4 text-primary" />
@@ -946,69 +750,58 @@ const Demo = () => {
                                   : 'bg-muted text-foreground'
                               }`
                         }`}>
-                          {msg.isProgressive && aiSpeech.isSpeaking ? (
-                            <span>
-                              {aiSpeech.displayedText}
-                              <span className="inline-block w-1 h-4 bg-accent ml-1 animate-pulse" />
-                            </span>
-                          ) : (
-                            msg.text
-                          )}
+                          {msg.isProgressive ? aiSpeech.displayedText || '...' : msg.text}
                         </div>
                       </motion.div>
                     ))}
-                    
-                    {aiTyping && (
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="flex gap-3"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
-                          <Bot className="w-4 h-4 text-accent" />
-                        </div>
-                        <div className="bg-muted rounded-lg p-3">
-                          <div className="flex gap-1">
-                            <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
-                            <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                            <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
                     <div ref={messagesEndRef} />
                   </div>
                 </div>
 
-                {/* Input area - only show when user is speaking */}
                 {isCurrentlyUserSpeaking && (
-                  <div className="flex gap-2">
-                    <Button
-                      variant={isRecording ? 'destructive' : 'outline'}
-                      size="icon"
-                      onClick={toggleRecording}
-                      className="flex-shrink-0"
-                      disabled={!voiceSupported}
-                      title={voiceSupported ? (isRecording ? 'Stop recording' : 'Start voice input') : 'Voice input not supported'}
-                    >
-                      {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                    </Button>
-                    <input
-                      ref={inputRef}
-                      type="text"
-                      value={userInput}
-                      onChange={(e) => setUserInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                      placeholder={isRecording ? "Listening... speak your argument" : "Type or speak your argument..."}
-                      className="flex-1 px-4 py-2 rounded-lg bg-muted border border-border focus:border-primary focus:outline-none"
-                    />
-                    <Button onClick={handleSendMessage} disabled={!userInput.trim()}>
-                      <Send className="w-4 h-4" />
-                    </Button>
+                  <div className="glass-card p-4">
+                    <div className="flex gap-2">
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        value={userInput}
+                        onChange={(e) => setUserInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
+                        placeholder="Type your argument here..."
+                        className="flex-1 px-4 py-2 rounded-lg bg-muted border border-border focus:border-primary focus:outline-none"
+                        disabled={!isTimerRunning}
+                      />
+                      {voiceSupported && (
+                        <Button
+                          variant={isRecording ? 'destructive' : 'outline'}
+                          size="icon"
+                          onClick={toggleRecording}
+                        >
+                          {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        </Button>
+                      )}
+                      <Button onClick={handleSendMessage} disabled={!userInput.trim()}>
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2 text-center">
+                      Submit your argument before the timer runs out
+                    </p>
                   </div>
                 )}
 
-                {/* Show message when AI is speaking */}
+                {aiTyping && (
+                  <div className="text-center py-4">
+                    <Loader2 className="w-6 h-6 mx-auto animate-spin text-accent" />
+                    <p className="text-sm text-muted-foreground mt-2">AI is preparing response...</p>
+                  </div>
+                )}
+
                 {isCurrentlyAISpeaking && !aiTyping && (
                   <div className="text-center py-4 text-muted-foreground">
                     <Volume2 className="w-6 h-6 mx-auto mb-2 animate-pulse text-accent" />
@@ -1017,7 +810,6 @@ const Demo = () => {
                 )}
               </div>
 
-              {/* Notes panel - ALWAYS visible during debate with PERSISTENT state */}
               <div className="w-80 hidden lg:block">
                 <DebateNotes
                   isRecording={false}
@@ -1031,7 +823,7 @@ const Demo = () => {
             </motion.div>
           )}
 
-          {/* Debate Complete Phase - waiting for user to request judgement */}
+          {/* Debate Complete Phase */}
           {phase === 'debate_complete' && (
             <motion.div
               key="debate-complete"
@@ -1040,7 +832,6 @@ const Demo = () => {
               exit={{ opacity: 0, y: -20 }}
               className="w-full max-w-6xl flex gap-6"
             >
-              {/* Main content - transcript review */}
               <div className="flex-1 glass-card p-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 rounded-full bg-success/20 flex items-center justify-center">
@@ -1052,7 +843,6 @@ const Demo = () => {
                   </div>
                 </div>
 
-                {/* Scrollable transcript */}
                 <div className="h-[350px] overflow-y-auto space-y-3 pr-2 mb-6 border rounded-lg p-4 bg-muted/20">
                   {messages.map((msg) => (
                     <motion.div
@@ -1068,9 +858,7 @@ const Demo = () => {
                       ) : (
                         <>
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            msg.sender === 'user' 
-                              ? 'bg-primary/20' 
-                              : 'bg-accent/20'
+                            msg.sender === 'user' ? 'bg-primary/20' : 'bg-accent/20'
                           }`}>
                             {msg.sender === 'user' ? (
                               <User className="w-4 h-4 text-primary" />
@@ -1079,9 +867,7 @@ const Demo = () => {
                             )}
                           </div>
                           <div className={`rounded-lg p-3 max-w-[85%] ${
-                            msg.sender === 'user'
-                              ? 'bg-primary/10'
-                              : 'bg-accent/10'
+                            msg.sender === 'user' ? 'bg-primary/10' : 'bg-accent/10'
                           }`}>
                             <p className="text-sm">{msg.text}</p>
                           </div>
@@ -1091,13 +877,11 @@ const Demo = () => {
                   ))}
                 </div>
 
-                {/* Action buttons */}
                 <div className="flex justify-center gap-3">
                   <Button
                     variant="outline"
                     size="lg"
                     onClick={() => {
-                      // Generate transcript text
                       const transcriptLines = messages
                         .filter(msg => msg.sender !== 'system')
                         .map(msg => {
@@ -1108,15 +892,8 @@ const Demo = () => {
                         })
                         .join('\n');
                       
-                      const fullTranscript = `DEBATE TRANSCRIPT
-================
-Motion: "${topic}"
-Your Side: ${userSide === 'proposition' ? 'Proposition' : 'Opposition'}
-Date: ${new Date().toLocaleDateString()}
-
-${transcriptLines}`;
+                      const fullTranscript = `DEBATE TRANSCRIPT\n================\nMotion: "${topic}"\nYour Side: ${userSide === 'proposition' ? 'Proposition' : 'Opposition'}\nDate: ${new Date().toLocaleDateString()}\n\n${transcriptLines}`;
                       
-                      // Create and download file
                       const blob = new Blob([fullTranscript], { type: 'text/plain' });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement('a');
@@ -1147,7 +924,6 @@ ${transcriptLines}`;
                 </div>
               </div>
 
-              {/* Notes panel - still visible */}
               {showNotesPanel && (
                 <div className="w-80 flex-shrink-0">
                   <DebateNotes
@@ -1187,7 +963,6 @@ ${transcriptLines}`;
               exit={{ opacity: 0, y: -20 }}
               className="glass-card p-6 max-w-2xl max-h-[80vh] overflow-y-auto"
             >
-              {/* Header with verdict */}
               <div className="text-center mb-6 pb-6 border-b border-border">
                 <motion.div
                   initial={{ scale: 0 }}
@@ -1204,7 +979,6 @@ ${transcriptLines}`;
                 <p className="text-muted-foreground text-sm max-w-md mx-auto">{feedback.summary}</p>
               </div>
 
-              {/* Category Scores */}
               <div className="mb-6">
                 <h3 className="font-medium mb-4 flex items-center gap-2">
                   <Target className="w-4 h-4 text-primary" />
@@ -1275,7 +1049,6 @@ ${transcriptLines}`;
                 </div>
               </div>
 
-              {/* Key Moments */}
               {feedback.keyMoments.length > 0 && (
                 <div className="mb-6">
                   <h3 className="font-medium mb-4 flex items-center gap-2">
@@ -1305,7 +1078,6 @@ ${transcriptLines}`;
                 </div>
               )}
 
-              {/* Research Suggestions */}
               {feedback.researchSuggestions.length > 0 && (
                 <div className="mb-6">
                   <h3 className="font-medium mb-3 flex items-center gap-2">
@@ -1359,24 +1131,19 @@ ${transcriptLines}`;
 
               <div className="bg-muted/50 rounded-lg p-4 mb-6 text-left">
                 <p className="text-sm text-muted-foreground">
-                  <strong className="text-foreground">What's next?</strong> Sign up for free to:
+                  <strong className="text-foreground">Your Progress:</strong> This debate has been recorded to your profile.
                 </p>
                 <ul className="text-sm text-muted-foreground mt-2 space-y-1">
-                  <li>• Debate real opponents worldwide</li>
-                  <li>• Track your progress and ELO rating</li>
-                  <li>• Access all debate formats (BP, LD, PF, WSDC)</li>
-                  <li>• Get even more detailed AI coaching</li>
+                  <li>• Try human vs human matchmaking next</li>
+                  <li>• Practice different formats to improve</li>
+                  <li>• Review your ELO progression in profile</li>
                 </ul>
               </div>
 
               <div className="space-y-3">
-                <Button onClick={() => navigate('/auth')} className="w-full bg-gradient-to-r from-primary to-secondary">
-                  Sign Up Free
+                <Button onClick={onExit} className="w-full bg-gradient-to-r from-primary to-secondary">
+                  Find Another Debate
                   <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-                <Button variant="outline" onClick={restartDemo} className="w-full">
-                  <RotateCcw className="w-4 h-4 mr-2" />
-                  Try Another Topic
                 </Button>
                 <Button variant="ghost" onClick={() => navigate('/')} className="w-full">
                   Back to Home
@@ -1390,4 +1157,4 @@ ${transcriptLines}`;
   );
 };
 
-export default Demo;
+export default PlayDebate;
